@@ -155,6 +155,17 @@
   .src-sub{font-size:.78rem;color:var(--ink-soft);margin-top:2px;line-height:1.4}
   .src-action{flex-shrink:0;font-size:.78rem;font-weight:700;color:var(--accent);white-space:nowrap}
   .src-item.ext .src-action{color:var(--ink-soft)}
+
+  /* ── 品詞カラー（単語を視覚的に覚える） ───────────────────── */
+  .pos-badge{align-self:center;color:#fff;font-size:.72rem;font-weight:700;
+    padding:4px 11px;border-radius:999px;letter-spacing:.02em;white-space:nowrap}
+  .detail{border-left:5px solid var(--pos,var(--accent))}
+  .dhead .base{position:relative}
+  .arrow{animation:arrowSlide .6s ease both}
+  @keyframes arrowSlide{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+  .vitem{padding-left:12px;border-left:4px solid var(--line)}
+  .vword{display:flex;align-items:center;gap:7px}
+  .vword .vemoji{font-size:1.05rem;line-height:1}
 </style>
 </head>
 <body>
@@ -351,28 +362,78 @@ function paintWord() {
   });
 }
 
+/* ---------- ビジュアル用ヘルパー ---------- */
+// 品詞(日本語/英語どちらでも)→ 色・絵文字・ラベル。視覚的に記憶に残す手がかり。
+const POS_MAP = [
+  { test:/名詞|noun/i,                         key:'noun', label:'名詞',  emoji:'📦', color:'#2b4c7e' },
+  { test:/動詞|verb/i,                          key:'verb', label:'動詞',  emoji:'🏃', color:'#b4452a' },
+  { test:/形容詞|adjective/i,                    key:'adj',  label:'形容詞', emoji:'🎨', color:'#2e7d51' },
+  { test:/副詞|adverb/i,                         key:'adv',  label:'副詞',  emoji:'⚡', color:'#7a4fb0' },
+  { test:/代名詞|pronoun/i,                      key:'pron', label:'代名詞', emoji:'👤', color:'#0d8a9e' },
+  { test:/数詞|numeral|数/i,                     key:'num',  label:'数詞',  emoji:'🔢', color:'#c77d0a' },
+  { test:/接続詞|conjunction/i,                  key:'conj', label:'接続詞', emoji:'🔗', color:'#7a7060' },
+  { test:/(後置詞|前置詞|adposition|postposition)/i, key:'adp', label:'後置詞', emoji:'📍', color:'#9c6b2e' },
+  { test:/感動詞|interjection/i,                 key:'intj', label:'感動詞', emoji:'❗', color:'#c0568a' },
+];
+function posStyle(wordClass) {
+  const w = wordClass || '';
+  for (const p of POS_MAP) if (p.test.test(w)) return p;
+  return { key:'other', label:(w || 'その他'), emoji:'🔤', color:'#6a665c' };
+}
+// 簡易要素ヘルパー（textContentのみ使用＝XSS安全）
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
 /* ---------- 詳細カード ---------- */
 function showDetail(key) {
   const m = marked[key]; const d = $("detail");
-  if (!m) { d.innerHTML = ""; return; }
+  d.textContent = "";
+  if (!m) return;
   if (m.status === "loading") {
-    d.innerHTML = `<div class="detail"><span class="spin"></span> 「${esc(m.surface)}」を分析中…</div>`; return;
+    const box = el('div','detail');
+    box.appendChild(el('span','spin'));
+    box.appendChild(document.createTextNode(' 「' + m.surface + '」を分析中…'));
+    d.appendChild(box); return;
   }
   if (m.status === "error") {
-    d.innerHTML = `<div class="detail err">分析に失敗しました。もう一度クリックしてください。</div>`; return;
+    d.appendChild(el('div','detail err','分析に失敗しました。もう一度クリックしてください。'));
+    return;
   }
-  const x = m.data;
-  d.innerHTML = `<div class="detail">
-    <div class="dhead">
-      <span class="orig">${esc(m.surface)}</span><span class="arrow">→</span>
-      <span class="base">${esc(x.perusmuoto)}</span>
-      <span class="chip" style="align-self:center">${esc(x.wordClass||"")}</span>
-    </div>
-    <div class="row"><div class="rlabel">この文での意味</div><div class="rval strong">${esc(x.contextMeaning||"")}</div></div>
-    <div class="row"><div class="rlabel">原形の意味</div><div class="rval">${esc(x.baseMeaning||"")}</div></div>
-    <div class="row"><div class="rlabel">なぜこの形？</div><div class="rval">${esc(x.plain||"")}</div></div>
-    ${x.grammar ? `<details><summary>▾ 文法用語でくわしく</summary><div class="gtext">${esc(x.grammar)}</div></details>` : ""}
-  </div>`;
+  const x = m.data; const ps = posStyle(x.wordClass);
+  const box = el('div','detail');
+  box.style.setProperty('--pos', ps.color);
+
+  const head = el('div','dhead');
+  head.appendChild(el('span','orig', m.surface));
+  head.appendChild(el('span','arrow','→'));
+  head.appendChild(el('span','base', x.perusmuoto || ''));
+  if (x.wordClass) {
+    const badge = el('span','pos-badge', ps.emoji + ' ' + x.wordClass);
+    badge.style.background = ps.color;
+    head.appendChild(badge);
+  }
+  box.appendChild(head);
+
+  box.appendChild(detailRow('この文での意味', x.contextMeaning, true));
+  box.appendChild(detailRow('原形の意味', x.baseMeaning));
+  box.appendChild(detailRow('なぜこの形？', x.plain));
+  if (x.grammar) {
+    const det = document.createElement('details');
+    det.appendChild(el('summary', null, '▾ 文法用語でくわしく'));
+    det.appendChild(el('div','gtext', x.grammar));
+    box.appendChild(det);
+  }
+  d.appendChild(box);
+}
+function detailRow(label, val, strong) {
+  const r = el('div','row');
+  r.appendChild(el('div','rlabel', label));
+  r.appendChild(el('div','rval' + (strong ? ' strong' : ''), val || ''));
+  return r;
 }
 
 /* ---------- 単語帳（localStorage） ---------- */
@@ -385,22 +446,37 @@ function addToVocab(data, surface){
 }
 function renderVocab(){
   $("vcard").style.display = vocab.length ? "block" : "none";
-  $("vlist").innerHTML = vocab.map((v,i) => `
-    <div class="vitem" data-i="${i}">
-      <span class="vword">${esc(v.perusmuoto)}</span>
-      <span><span class="vmean">${esc(v.contextMeaning||"")}</span><span class="vdel" data-del="${i}">✕</span></span>
-    </div>`).join("");
-  $("vlist").querySelectorAll(".vitem").forEach(el => {
-    el.onclick = (ev) => {
+  renderStats();
+  const list = $("vlist"); list.textContent = "";
+  vocab.forEach((v, i) => {
+    const ps = posStyle(v.wordClass);
+    const item = el('div','vitem'); item.dataset.i = i;
+    item.style.borderLeftColor = ps.color;
+
+    const word = el('span','vword');
+    word.appendChild(el('span','vemoji', ps.emoji));
+    word.appendChild(el('span', null, v.perusmuoto));
+    item.appendChild(word);
+
+    const right = el('span');
+    right.appendChild(el('span','vmean', v.contextMeaning || ''));
+    const del = el('span','vdel','✕'); del.dataset.del = i;
+    right.appendChild(del);
+    item.appendChild(right);
+
+    item.onclick = (ev) => {
       if (ev.target.dataset.del !== undefined) { vocab.splice(+ev.target.dataset.del,1); saveVocab(); return; }
-      const v = vocab[+el.dataset.i];
-      const key = v.surface.toLowerCase();
-      marked[key] = { status:"done", data:v, surface:v.surface, sentence:"" };
+      const vv = vocab[+item.dataset.i];
+      const key = vv.surface.toLowerCase();
+      marked[key] = { status:"done", data:vv, surface:vv.surface, sentence:"" };
       highlightSelected(key); showDetail(key);
       $("detail").scrollIntoView({behavior:"smooth", block:"center"});
     };
+    list.appendChild(item);
   });
 }
+// 学習の可視化（Phase Dで本体実装。未配置なら何もしない）
+function renderStats(){ const box = $("vstats"); if (!box) return; }
 function exportAnki(){
   const tsv = vocab.map(v => `${v.perusmuoto}\t${v.contextMeaning||""}\t${v.plain||""}`).join("\n");
   const blob = new Blob([tsv], {type:"text/tab-separated-values"});
