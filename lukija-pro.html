@@ -166,6 +166,27 @@
   .vitem{padding-left:12px;border-left:4px solid var(--line)}
   .vword{display:flex;align-items:center;gap:7px}
   .vword .vemoji{font-size:1.05rem;line-height:1}
+
+  /* ── 学習の可視化（グラフ） ─────────────────────────────── */
+  .vstats{margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+  .stat-total{display:flex;align-items:baseline;gap:7px;margin-bottom:6px}
+  .stat-num{font-family:'Fraunces',serif;font-size:2.3rem;font-weight:600;color:var(--accent-d);line-height:1}
+  .stat-lab{font-size:.9rem;color:var(--ink-soft)}
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:520px){.stat-grid{grid-template-columns:1fr}}
+  .stat-section{margin-top:10px}
+  .stat-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);margin-bottom:7px}
+  .bar-row{display:flex;align-items:center;gap:8px;margin:4px 0}
+  .bar-name{font-size:.8rem;width:84px;flex-shrink:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-track{flex:1;height:10px;background:rgba(40,40,30,.06);border-radius:999px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:999px;width:0;transition:width .6s cubic-bezier(.2,.8,.2,1)}
+  .bar-cnt{font-size:.8rem;font-weight:700;color:var(--ink-soft);width:22px;text-align:right}
+  .day-cols{display:flex;gap:5px;align-items:flex-end;height:66px}
+  .day-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+  .day-bar{width:72%;min-height:3px;height:0;background:var(--line);border-radius:5px 5px 0 0;transition:height .6s cubic-bezier(.2,.8,.2,1)}
+  .day-bar.on{background:linear-gradient(180deg,var(--accent),var(--accent-d))}
+  .day-cap{font-size:.66rem;color:var(--ink-soft);margin-top:5px}
+  .day-cap.today{color:var(--accent);font-weight:700}
 </style>
 </head>
 <body>
@@ -213,6 +234,7 @@
         <button id="clearVocab" class="btn btn-ghost" style="padding:6px 12px;font-size:.78rem">空にする</button>
       </div>
     </div>
+    <div id="vstats" class="vstats"></div>
     <div id="vlist"></div>
   </div>
 
@@ -475,8 +497,77 @@ function renderVocab(){
     list.appendChild(item);
   });
 }
-// 学習の可視化（Phase Dで本体実装。未配置なら何もしない）
-function renderStats(){ const box = $("vstats"); if (!box) return; }
+// 学習の可視化: 総語数・品詞バランス・直近7日の学習量
+function renderStats(){
+  const box = $("vstats");
+  if (!box) return;
+  box.textContent = "";
+  if (!vocab.length) return;
+
+  // (a) 総語数
+  const total = el('div','stat-total');
+  total.appendChild(el('span','stat-num', String(vocab.length)));
+  total.appendChild(el('span','stat-lab', '語 覚えた'));
+  box.appendChild(total);
+
+  const grid = el('div','stat-grid');
+
+  // (b) 品詞のバランス
+  const posSec = el('div','stat-section');
+  posSec.appendChild(el('div','stat-title','品詞のバランス'));
+  const counts = {};
+  vocab.forEach(v => {
+    const ps = posStyle(v.wordClass);
+    if (!counts[ps.key]) counts[ps.key] = { ps, n:0 };
+    counts[ps.key].n++;
+  });
+  const rows = Object.values(counts).sort((a,b) => b.n - a.n);
+  const maxN = rows.reduce((m,r) => Math.max(m, r.n), 1);
+  rows.forEach(r => {
+    const row = el('div','bar-row');
+    row.appendChild(el('div','bar-name', r.ps.emoji + ' ' + r.ps.label));
+    const track = el('div','bar-track');
+    const fill = el('div','bar-fill');
+    fill.style.background = r.ps.color;
+    track.appendChild(fill);
+    row.appendChild(track);
+    row.appendChild(el('div','bar-cnt', String(r.n)));
+    posSec.appendChild(row);
+    // アニメーション: 次フレームで幅を設定
+    requestAnimationFrame(() => { fill.style.width = Math.round(r.n / maxN * 100) + '%'; });
+  });
+  grid.appendChild(posSec);
+
+  // (c) この7日間
+  const daySec = el('div','stat-section');
+  daySec.appendChild(el('div','stat-title','この7日間'));
+  const WD = ['日','月','火','水','木','金','土'];
+  const today = new Date(); today.setHours(0,0,0,0);
+  const days = [];
+  for (let i = 6; i >= 0; i--){
+    const d = new Date(today); d.setDate(today.getDate() - i);
+    days.push({ start: d.getTime(), end: d.getTime() + 86400000, wd: d.getDay(), n:0, isToday: i === 0 });
+  }
+  vocab.forEach(v => {
+    const t = v.ts || 0;
+    for (const day of days){ if (t >= day.start && t < day.end){ day.n++; break; } }
+  });
+  const maxD = days.reduce((m,d) => Math.max(m, d.n), 1);
+  const cols = el('div','day-cols');
+  days.forEach(d => {
+    const col = el('div','day-col');
+    const bar = el('div','day-bar' + (d.n ? ' on' : ''));
+    bar.title = d.n + '語';
+    col.appendChild(bar);
+    col.appendChild(el('div','day-cap' + (d.isToday ? ' today' : ''), WD[d.wd]));
+    cols.appendChild(col);
+    requestAnimationFrame(() => { bar.style.height = Math.round(d.n / maxD * 100) + '%'; });
+  });
+  daySec.appendChild(cols);
+  grid.appendChild(daySec);
+
+  box.appendChild(grid);
+}
 function exportAnki(){
   const tsv = vocab.map(v => `${v.perusmuoto}\t${v.contextMeaning||""}\t${v.plain||""}`).join("\n");
   const blob = new Blob([tsv], {type:"text/tab-separated-values"});
