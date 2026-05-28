@@ -122,19 +122,39 @@
   .hresult strong{font-weight:700}
   .retry-hint{color:var(--ink-soft);font-size:.87rem}
 
-  /* ── 最新記事リスト ──────────────────────────────────────── */
-  .recent{margin-top:14px}
-  .recent-head{font-size:11px;letter-spacing:1px;text-transform:uppercase;font-weight:700;
-    color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:10px}
-  .recent-list{display:flex;flex-direction:column;gap:6px}
-  .recent-item{display:block;width:100%;text-align:left;background:#fbf8f1;
-    border:1px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer;
-    font-family:'Archivo',sans-serif;color:var(--ink);
+  /* ── 読むものを選ぶ（マルチソース） ─────────────────────── */
+  .picker{margin-top:14px}
+  .picker-head{font-size:11px;letter-spacing:1px;text-transform:uppercase;font-weight:700;
+    color:var(--accent);margin-bottom:8px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .chip-btn{font-family:'Archivo',sans-serif;font-size:.82rem;font-weight:600;
+    border:1px solid var(--line);border-radius:999px;padding:8px 14px;min-height:40px;
+    cursor:pointer;background:#fbf8f1;color:var(--ink-soft);
+    transition:background .15s,color .15s,border-color .15s}
+  .chip-btn:hover{background:rgba(43,76,126,.07)}
+  .chip-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .chip-btn.hidden{display:none}
+
+  .picker-body{display:flex;flex-direction:column;gap:6px;min-height:52px}
+  .picker-spin{display:flex;align-items:center;gap:8px;color:var(--ink-soft);font-size:.85rem;padding:8px 4px}
+  .src-empty{color:var(--ink-soft);font-size:.85rem;padding:8px 4px}
+
+  .src-group-head{font-size:.74rem;font-weight:700;color:var(--ink-soft);letter-spacing:.04em;
+    margin:10px 4px 2px;padding-top:8px;border-top:1px dashed var(--line)}
+  .src-group-head:first-child{margin-top:0;border-top:none;padding-top:0}
+
+  .src-item{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    width:100%;text-align:left;background:#fbf8f1;border:1px solid var(--line);
+    border-radius:10px;padding:10px 14px;min-height:44px;cursor:pointer;
+    font-family:'Archivo',sans-serif;color:var(--ink);text-decoration:none;
     transition:background .15s,border-color .15s,transform .1s}
-  .recent-item:hover{background:rgba(43,76,126,.06);border-color:var(--accent)}
-  .recent-item:active{transform:translateY(1px)}
-  .recent-date{font-weight:600;font-size:.9rem;color:var(--accent-d)}
-  .recent-desc{font-size:.82rem;color:var(--ink-soft);margin-top:2px;line-height:1.45}
+  .src-item:hover{background:rgba(43,76,126,.06);border-color:var(--accent)}
+  .src-item:active{transform:translateY(1px)}
+  .src-item.ext{background:#fff;border-style:dashed}
+  .src-title{font-weight:600;font-size:.92rem;color:var(--accent-d);line-height:1.4}
+  .src-sub{font-size:.78rem;color:var(--ink-soft);margin-top:2px;line-height:1.4}
+  .src-action{flex-shrink:0;font-size:.78rem;font-weight:700;color:var(--accent);white-space:nowrap}
+  .src-item.ext .src-action{color:var(--ink-soft)}
 </style>
 </head>
 <body>
@@ -154,12 +174,10 @@
     <button id="go" class="btn btn-primary">取り込む</button>
   </div>
 
-  <div id="recent" class="recent" style="display:none">
-    <div class="recent-head">
-      <span>最新の Selkouutiset</span>
-      <span id="recentSpin" style="display:none"><span class="spin"></span></span>
-    </div>
-    <div id="recentList" class="recent-list"></div>
+  <div id="picker" class="picker">
+    <div class="picker-head">読むものを選ぶ</div>
+    <div id="srcChips" class="chips"></div>
+    <div id="srcBody" class="picker-body"></div>
   </div>
 
   <span id="pasteToggle" class="toggle">▾ 直接テキストを貼る（URLで取れないサイト用）</span>
@@ -412,58 +430,179 @@ $("clearVocab").onclick = () => { if (confirm("単語帳を空にしますか？
 
 renderVocab();
 
-/* ── 起動時: Selkouutiset の RSS から最新記事ボタンを生成 ───── */
-// 確認済みフィード (2026-05 時点): item に title(日付), link(/a/...?origin=rss), description(トピック要約)
-const RSS_URL = "https://feeds.yle.fi/uutiset/v1/recent.rss?publisherIds=YLE_SELKOUUTISET";
+/* ═══════════ 読むものを選ぶ（マルチソース） ═══════════ */
+/* ソース定義。kind と read を書き換えるだけで「読む↔開く」を切替可能。
+   kind:"rss"   … 起動時/選択時に PROXY 経由でフィード取得→最新記事を「読む」カードに
+   kind:"links" … 固定リスト。各 item の read で振り分け（true=精読ツール / false=新規タブ）
+   ─ read 判定の根拠は Step2 の Readability 実テスト（2026-05）─ */
+const SOURCES = [
+  // ── 新聞型（RSS確認済み）──────────────────────────────
+  { id:"selkouutiset", name:"Yle Selkouutiset", kind:"rss",
+    url:"https://yle.fi/rss/selkouutiset" },            // item: title(日付)/link(/a/…?origin=rss)/description
+  { id:"selkosanomat", name:"Selkosanomat", kind:"rss",
+    url:"https://selkosanomat.fi/feed/" },              // WordPress RSS: title/link(記事URL)/description(HTML)
 
-async function loadRecent() {
-  const section = $('recent');
-  const spin = $('recentSpin');
-  section.style.display = 'block';
-  spin.style.display = 'inline';
+  // ── 教材・読み物（固定リスト）────────────────────────
+  { id:"papunet", name:"Papunet 読み物", kind:"links", items:[
+    { group:"おはなし", title:"Kettu ja jänis", url:"https://papunet.net/verkkokirjat/kettu-ja-janis/", read:true },
+    { group:"おはなし", title:"Kissan keino",   url:"https://papunet.net/verkkokirjat/kissan-keino/",   read:true },
+    { group:"暮らし・知識", title:"Jokamiehenoikeudet",   url:"https://papunet.net/verkkokirjat/jokamiehenoikeudet/",   read:true },
+    { group:"暮らし・知識", title:"Julkisuuden henkilöitä", url:"https://papunet.net/verkkokirjat/julkisuuden-henkiloita/", read:true },
+  ]},
+  { id:"yki", name:"YKI教材", kind:"links", items:[
+    { group:"紹介", title:"YKI-testi tulossa? Harjoittele B1-suomea", url:"https://yle.fi/a/74-20082612", read:true, note:"Yle の YKI対策パッケージの紹介記事" },
+    { group:"練習問題（インタラクティブ／サイトで開く）", title:"Minä ja taustani", url:"https://yle.fi/a/74-20082587", read:false },
+    { group:"練習問題（インタラクティブ／サイトで開く）", title:"Matkustaminen",   url:"https://yle.fi/a/74-20082594", read:false },
+    { group:"練習問題（インタラクティブ／サイトで開く）", title:"Työ",            url:"https://yle.fi/a/74-20082599", read:false },
+  ]},
+  { id:"infofinland", name:"InfoFinland", kind:"links", items:[
+    { group:"住まい (Asuminen)", title:"Asuminen Suomessa", url:"https://infofinland.fi/fi/housing/housing-in-finland", read:true },
+    { group:"住まい (Asuminen)", title:"Vuokra-asunto",     url:"https://infofinland.fi/fi/housing/rental-home",       read:true },
+    { group:"住まい (Asuminen)", title:"Asumistuki",        url:"https://infofinland.fi/fi/housing/housing-allowance", read:true },
+    { group:"住まい (Asuminen)", title:"Kun muutat",        url:"https://infofinland.fi/fi/housing/moving-house",      read:true },
+    { group:"トップ（参考リンク・本文は薄い）", title:"InfoFinland トップ",        url:"https://infofinland.fi/fi", read:false },
+    { group:"トップ（参考リンク・本文は薄い）", title:"Työ ja yrittäjyys（一覧）", url:"https://infofinland.fi/fi/work-and-enterprise", read:false },
+  ]},
+];
+
+const rssCache = {};   // id -> 整形済み items（初回取得後にキャッシュ）
+let activeSrc = null;
+
+function renderChips() {
+  const chips = $('srcChips');
+  chips.textContent = '';
+  SOURCES.forEach(s => {
+    const b = document.createElement('button');
+    b.className = 'chip-btn'; b.type = 'button';
+    b.dataset.id = s.id; b.textContent = s.name;
+    if (s.id === activeSrc) b.classList.add('active');
+    b.onclick = () => selectSrc(s.id);
+    chips.appendChild(b);
+  });
+}
+
+function setChipActive(id) {
+  document.querySelectorAll('.chip-btn').forEach(c =>
+    c.classList.toggle('active', c.dataset.id === id));
+}
+
+async function selectSrc(id) {
+  activeSrc = id; setChipActive(id);
+  const src = SOURCES.find(s => s.id === id); if (!src) return;
+  const body = $('srcBody'); body.textContent = '';
+  if (src.kind === 'rss') await renderRss(src, body);
+  else renderLinks(src, body);
+}
+
+async function renderRss(src, body) {
+  const spin = document.createElement('div');
+  spin.className = 'picker-spin';
+  const ic = document.createElement('span'); ic.className = 'spin';
+  const tx = document.createElement('span'); tx.textContent = '最新記事を取得中…';
+  spin.appendChild(ic); spin.appendChild(tx);
+  body.appendChild(spin);
   try {
-    const xml = await fetch(PROXY + "?url=" + encodeURIComponent(RSS_URL)).then(r => r.text());
-    if (!xml || xml.startsWith("ERROR:")) throw new Error("rss fetch failed");
-    const doc = new DOMParser().parseFromString(xml, "application/xml");
-    if (doc.querySelector("parsererror")) throw new Error("rss parse failed");
-    const items = Array.from(doc.querySelectorAll("item")).slice(0, 6);
-    if (items.length === 0) throw new Error("no items");
-
-    const list = $('recentList');
-    list.textContent = '';
+    let items = rssCache[src.id];
+    if (!items) {
+      const xml = await fetch(PROXY + "?url=" + encodeURIComponent(src.url)).then(r => r.text());
+      if (!xml || xml.startsWith("ERROR:")) throw new Error("rss fetch failed");
+      const doc = new DOMParser().parseFromString(xml, "application/xml");
+      if (doc.querySelector("parsererror")) throw new Error("rss parse failed");
+      items = Array.from(doc.querySelectorAll("item")).slice(0, 8).map(it => ({
+        title: (it.querySelector("title")?.textContent || "").trim(),
+        link:  (it.querySelector("link")?.textContent || "").trim().replace(/\?origin=rss$/, ""),
+        desc:  stripHtml(it.querySelector("description")?.textContent || ""),
+      })).filter(it => it.link);
+      if (items.length === 0) throw new Error("no items");
+      rssCache[src.id] = items;
+    }
+    // 選択が切り替わっていたら描画しない
+    if (activeSrc !== src.id) return;
+    body.textContent = '';
     items.forEach(it => {
-      const title = (it.querySelector("title")?.textContent || "").trim();
-      const linkRaw = (it.querySelector("link")?.textContent || "").trim();
-      const desc = (it.querySelector("description")?.textContent || "").trim();
-      if (!linkRaw) return;
-      const link = linkRaw.replace(/\?origin=rss$/, "");
-      // 「Selkouutiset | keskiviikko 27.5.2026」→「keskiviikko 27.5.2026」
-      const dateLabel = title.replace(/^Selkouutiset\s*\|\s*/i, "").trim() || title;
-
-      const btn = document.createElement('button');
-      btn.className = 'recent-item';
-      btn.type = 'button';
-      const d1 = document.createElement('div');
-      d1.className = 'recent-date';
-      d1.textContent = dateLabel;
-      btn.appendChild(d1);
-      if (desc) {
-        const d2 = document.createElement('div');
-        d2.className = 'recent-desc';
-        d2.textContent = desc;
-        btn.appendChild(d2);
+      const card = document.createElement('button');
+      card.className = 'src-item'; card.type = 'button';
+      const left = document.createElement('div');
+      const t = document.createElement('div'); t.className = 'src-title';
+      t.textContent = it.title.replace(/^Selkouutiset\s*\|\s*/i, "").trim() || it.title;
+      left.appendChild(t);
+      if (it.desc) {
+        const s = document.createElement('div'); s.className = 'src-sub';
+        s.textContent = it.desc.slice(0, 160);
+        left.appendChild(s);
       }
-      btn.onclick = () => { $('url').value = link; importFromUrl(link); };
-      list.appendChild(btn);
+      card.appendChild(left);
+      const a = document.createElement('span'); a.className = 'src-action'; a.textContent = '読む →';
+      card.appendChild(a);
+      card.onclick = () => { $('url').value = it.link; importFromUrl(it.link); };
+      body.appendChild(card);
     });
-    spin.style.display = 'none';
   } catch (e) {
-    // 取得失敗時はセクションごと非表示にして既存挙動を壊さない
-    section.style.display = 'none';
+    // 取得失敗 → このソースのチップを隠し、他の生きているソースへフォールバック
+    const chip = document.querySelector('.chip-btn[data-id="' + src.id + '"]');
+    if (chip) chip.classList.add('hidden');
+    if (activeSrc === src.id) {
+      body.textContent = '';
+      const next = SOURCES.find(s => {
+        const c = document.querySelector('.chip-btn[data-id="' + s.id + '"]');
+        return s.id !== src.id && c && !c.classList.contains('hidden');
+      });
+      if (next) selectSrc(next.id);
+    }
   }
 }
 
-loadRecent();
+function renderLinks(src, body) {
+  body.textContent = '';
+  const groups = new Map();
+  (src.items || []).forEach(it => {
+    const g = it.group || '';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(it);
+  });
+  groups.forEach((items, g) => {
+    if (g) {
+      const h = document.createElement('div');
+      h.className = 'src-group-head'; h.textContent = g;
+      body.appendChild(h);
+    }
+    items.forEach(it => {
+      let el;
+      if (it.read) {
+        el = document.createElement('button'); el.type = 'button'; el.className = 'src-item';
+        el.onclick = () => { $('url').value = it.url; importFromUrl(it.url); };
+      } else {
+        el = document.createElement('a'); el.className = 'src-item ext';
+        el.href = it.url; el.target = '_blank'; el.rel = 'noopener';
+      }
+      const left = document.createElement('div');
+      const t = document.createElement('div'); t.className = 'src-title'; t.textContent = it.title;
+      left.appendChild(t);
+      if (it.note) {
+        const s = document.createElement('div'); s.className = 'src-sub'; s.textContent = it.note;
+        left.appendChild(s);
+      }
+      el.appendChild(left);
+      const a = document.createElement('span'); a.className = 'src-action';
+      a.textContent = it.read ? '読む →' : '↗ サイトを開く';
+      el.appendChild(a);
+      body.appendChild(el);
+    });
+  });
+}
+
+// RSS description 等の HTML 断片をプレーンテキスト化（DOMには挿入しない）
+function stripHtml(s) {
+  if (!s) return '';
+  if (/<[^>]+>/.test(s)) {
+    const d = new DOMParser().parseFromString(s, "text/html");
+    return (d.body.textContent || "").replace(/\s+/g, " ").trim();
+  }
+  return s.replace(/\s+/g, " ").trim();
+}
+
+renderChips();
+selectSrc(SOURCES[0].id);   // 起動時に先頭ソース（Yle Selkouutiset）を自動表示
 
 /* ── タブ切り替え ─────────────────────────────────────────── */
 document.querySelectorAll('.tab').forEach(btn => {
