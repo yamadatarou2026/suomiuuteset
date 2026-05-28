@@ -155,6 +155,14 @@
   .src-sub{font-size:.78rem;color:var(--ink-soft);margin-top:2px;line-height:1.4}
   .src-action{flex-shrink:0;font-size:.78rem;font-weight:700;color:var(--accent);white-space:nowrap}
   .src-item.ext .src-action{color:var(--ink-soft)}
+  /* サムネ付きRSSカード */
+  .rss-card{align-items:stretch;padding:8px 12px 8px 8px}
+  .rss-thumb{flex-shrink:0;width:88px;height:60px;border-radius:8px;overflow:hidden;
+    background:#eee4d2;display:flex;align-items:center;justify-content:center}
+  .rss-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .rss-thumb.ph{font-family:'Fraunces',serif;font-size:1.6rem;font-weight:600;
+    color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent-d))}
+  .rss-text{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center}
 
   /* ── 品詞カラー（単語を視覚的に覚える） ───────────────────── */
   .pos-badge{align-self:center;color:#fff;font-size:.72rem;font-weight:700;
@@ -605,7 +613,7 @@ renderVocab();
 const SOURCES = [
   // ── 新聞型（RSS確認済み）──────────────────────────────
   { id:"selkouutiset", name:"Yle Selkouutiset", kind:"rss",
-    url:"https://yle.fi/rss/selkouutiset" },            // item: title(日付)/link(/a/…?origin=rss)/description
+    url:"https://feeds.yle.fi/uutiset/v1/recent.rss?publisherIds=YLE_SELKOUUTISET" },  // enclosure にサムネあり（Cloudinary・サイズ可変）
   { id:"selkosanomat", name:"Selkosanomat", kind:"rss",
     url:"https://selkosanomat.fi/feed/" },              // WordPress RSS: title/link(記事URL)/description(HTML)
 
@@ -679,6 +687,7 @@ async function renderRss(src, body) {
         title: (it.querySelector("title")?.textContent || "").trim(),
         link:  (it.querySelector("link")?.textContent || "").trim().replace(/\?origin=rss$/, ""),
         desc:  stripHtml(it.querySelector("description")?.textContent || ""),
+        img:   bumpImg(firstImage(it)),
       })).filter(it => it.link);
       if (items.length === 0) throw new Error("no items");
       rssCache[src.id] = items;
@@ -688,10 +697,26 @@ async function renderRss(src, body) {
     body.textContent = '';
     items.forEach(it => {
       const card = document.createElement('button');
-      card.className = 'src-item'; card.type = 'button';
-      const left = document.createElement('div');
+      card.className = 'src-item rss-card'; card.type = 'button';
+
+      // サムネイル（あれば画像、なければ頭文字プレースホルダ）
+      const thumb = document.createElement('span'); thumb.className = 'rss-thumb';
+      const cleanTitle = it.title.replace(/^Selkouutiset\s*\|\s*/i, "").trim() || it.title;
+      if (it.img) {
+        const im = document.createElement('img');
+        im.src = it.img; im.alt = ''; im.loading = 'lazy';
+        im.onerror = () => { thumb.classList.add('ph'); im.remove();
+          thumb.appendChild(document.createTextNode((cleanTitle[0] || '∗').toUpperCase())); };
+        thumb.appendChild(im);
+      } else {
+        thumb.classList.add('ph');
+        thumb.textContent = (cleanTitle[0] || '∗').toUpperCase();
+      }
+      card.appendChild(thumb);
+
+      const left = document.createElement('div'); left.className = 'rss-text';
       const t = document.createElement('div'); t.className = 'src-title';
-      t.textContent = it.title.replace(/^Selkouutiset\s*\|\s*/i, "").trim() || it.title;
+      t.textContent = cleanTitle;
       left.appendChild(t);
       if (it.desc) {
         const s = document.createElement('div'); s.className = 'src-sub';
@@ -756,6 +781,29 @@ function renderLinks(src, body) {
       body.appendChild(el);
     });
   });
+}
+
+// RSS item から最初の画像URLを拾う（enclosure / media:* / content:encoded・description 内の <img>）
+function firstImage(item) {
+  // enclosure type=image
+  const enc = Array.from(item.querySelectorAll("enclosure")).find(e =>
+    (e.getAttribute("type") || "").startsWith("image") || /\.(jpe?g|png|webp)/i.test(e.getAttribute("url") || ""));
+  if (enc && enc.getAttribute("url")) return enc.getAttribute("url");
+  // media:content / media:thumbnail（名前空間つきは getElementsByTagName で拾う）
+  const media = item.getElementsByTagName("media:content")[0] || item.getElementsByTagName("media:thumbnail")[0];
+  if (media && media.getAttribute("url")) return media.getAttribute("url");
+  // content:encoded / description 内の <img src>
+  const html = (item.getElementsByTagName("content:encoded")[0]?.textContent)
+    || (item.querySelector("description")?.textContent) || "";
+  const m = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+  if (m) return m[1];
+  return "";
+}
+
+// Yle Cloudinary のサムネは w_NNN,h_NNN を含む → 大きめに差し替えて綺麗に表示
+function bumpImg(url) {
+  if (!url) return "";
+  return url.replace(/w_\d+,h_\d+/, "w_480,h_270");
 }
 
 // RSS description 等の HTML 断片をプレーンテキスト化（DOMには挿入しない）
