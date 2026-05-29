@@ -176,3 +176,64 @@ return _text(text); // 解説テキストをそのまま返す（JSONではな�
 - 無料枠レート制限（2026年時点・変動あり）: 2.5 Flash ≒ 10 RPM/250 RPD、Flash-Lite ≒ 15 RPM/1,000 RPD。**実装前に公式で最新値を確認**。
 - Gemini 2.0 Flash は廃止済み。新規は 2.5 系を使う。
 - これで「画像=Gemini無料、単語=Claude」のハイブリッド。キーは `ANTHROPIC_KEY` と `GEMINI_KEY` の2本をスクリプトプロパティに置く。
+
+---
+
+## 10. 「読むものを選ぶ」マルチソースピッカー（実装済み・2026-05-28）
+
+URL貼り付けに加えて、**ソースを選んで記事/教材を選ぶ**UIを追加済み。リーディングタブ上部、URLバーの下（`#picker`）。
+
+### 仕組み
+- フロントの **`SOURCES` 配列**（`lukija-pro.html` 内、`renderChips()` の直前あたり）が全ソースを定義。**この配列を編集するだけで増減・切替できる。**
+- `kind:"rss"` … 起動時/選択時に `PROXY?url=…` でフィード取得 → 最新8件を「読む」カードに（クリックで `importFromUrl`）。
+- `kind:"links"` … 固定リスト。各 item の **`read` フラグ**で振り分け: `true`=精読ツールで開く / `false`=新規タブで外部サイトを開く（`<a target="_blank">`）。
+- チップ（ソース切替ボタン）→ `renderChips()` / `selectSrc()`。RSS取得失敗時はそのチップを `.hidden` にして生きている他ソースへ自動フォールバック。
+
+### 現在登録済みのソース（read判定は Step2 の Readability 実テスト結果に基づく）
+- **Yle Selkouutiset**（rss）… `https://feeds.yle.fi/uutiset/v1/recent.rss?publisherIds=YLE_SELKOUUTISET`（※画像付きフィード。§11参照）
+- **Selkosanomat**（rss）… `https://selkosanomat.fi/feed/`
+- **Papunet 読み物**（links, 全 read:true）… verkkokirjat の個別ブックURL。
+- **YKI教材**（links）… 紹介記事 `74-20082612` のみ read:true。練習問題はインタラクティブJS widget で本文が取れない（Readabilityでナビしか取れず）ため **read:false（サイトで開く）**。
+- **InfoFinland**（links）… **一段深いサブページ**（例 `/fi/housing/housing-in-finland`）は本文2600〜7500字取れて read:true。**トピックのトップ（`/fi/housing` 等）はナビのみ〜230字で read:false**。サイト全体がクライアントレンダリングなので動的スクレイプは不可、URLは手動キュレーション。
+
+### 罠
+- `yle.fi/rss` はフィード索引ではなく**HTMLページ**を返す。`/rss/selkouutiset` か `feeds.yle.fi/…` を直接使う。
+- InfoFinland のトピックURLは **301リダイレクト**（`www` が落ちる正規化）。`UrlFetchApp` は `followRedirects:true` 済みなので proxy 経由なら問題なし。
+- Readability の動作確認は `.test-readability/`（node + jsdom + @mozilla/readability）。`.gitignore` 済み（node_modules が Device busy で消せないため）。
+
+---
+
+## 11. ビジュアライズ（4フェーズ実装済み・2026-05-28〜29）
+
+ユーザー要望「殺風景なのでビジュアライズできる？」に対し、4方向すべてを実装。**各フェーズを個別コミット（viz1〜viz4）**してあるので、気に入らない段階だけ `git revert` で戻せる。全て **DOM構築（createElement/textContent）で実装し innerHTML は不使用**（セキュリティフックの方針）。
+
+> ⚠️ コミットは `git -c user.email="lukija@local" -c user.name="lukija"` のインライン著者で打っている。秘密情報はコミットしない（APIキーは GAS スクリプトプロパティのみ）。
+
+### viz1: 品詞カラーコーディング（f77768a）
+- **`POS_MAP`** 配列 = 品詞ごとに `{test(正規表現), key, label, emoji, color}`。`posStyle(wordClass)` で該当を引く（ヒットしなければ「その他」）。
+- `el(tag, cls, text)` ヘルパーで DOM 生成。
+- `showDetail()` と `renderVocab()` を DOM 構築に全面書き換え。単語カードは `--pos` カスタムプロパティ、単語帳は `borderLeftColor` で品詞色を反映。各語に絵文字（📦名詞 🏃動詞 🎨形容詞 など）。
+
+### viz2: 学習統計の可視化（4a3b7c0）
+- 単語帳（`#vcard`）の中、`#vlist` の直前に **`#vstats`** を新設。`renderVocab()` から `renderStats()` を呼ぶ。
+- `renderStats()` が3つを描画: **(a)** 総語数の大きい数字 / **(b)** 「品詞のバランス」横棒グラフ（`posStyle` で集計→件数降順、`.bar-fill` の幅を `requestAnimationFrame` でアニメ）/ **(c)** 「この7日間」棒グラフ（各 vocab item の **`ts`**（`Date.now()`）を日別バケットに集計、曜日ラベル日月火水木金土・今日をハイライト）。
+- 対応CSS: `.vstats .stat-total/.stat-num/.stat-grid（@520pxで1列）/.bar-*/.day-*`。
+
+### viz3: 記事サムネイル（64d9abc）
+- Yle ソースのRSSを **画像付きフィード** `feeds.yle.fi/uutiset/v1/recent.rss?publisherIds=YLE_SELKOUUTISET` に切替（旧 `yle.fi/rss/selkouutiset` には enclosure 画像が無かった）。
+- `renderRss()` の item パースに `img: bumpImg(firstImage(it))` を追加。
+  - **`firstImage(item)`** = enclosure(type=image) → `media:content`/`media:thumbnail`（`getElementsByTagName` で名前空間つきを拾う）→ `content:encoded`/`description` 内の `<img src>` の順で最初の画像URLを取得。
+  - **`bumpImg(url)`** = Yle Cloudinary の `w_205,h_115` を `w_480,h_270` に置換して大判化。
+- RSSカードを `.rss-card`（サムネ + テキスト + 「読む →」）に再設計。**画像なし/読み込み失敗時は頭文字グラデのプレースホルダ**（`.rss-thumb.ph`、`img.onerror` でフォールバック）。
+
+### viz4: 全体UIの装飾（ba0089b）
+- 見出し `lukija` をグラデ文字（`background-clip:text`）、`.sub` 下にアクセントライン、`.chip` にアクセントドット（単語帳チップはオレンジ）。
+- `.picker-head` に 📚 アイコン、`.btn-primary` ホバーで浮き上がる影、`.card` 登場アニメ（`slide`）、`.src-item` ホバーで持ち上がり＋「読む →」が右にスライド。
+- **すべて CSS/マークアップのみ。JSは未変更。**
+
+### 同期
+- 作業用 `…\suomiuuteset\lukija-pro.html`（git管理下）と本番用 `…\Downloads\lukija-pro.html`（ユーザーがダブルクリックで開く方）の**2か所**にコピーが存在。**変更したら両方に反映すること**（PROXY URL もここで一致させる。過去に本番用のURLをプレースホルダのままにして "Failed to fetch" が出た事故あり）。
+
+### 構文チェック手順（参考）
+- インラインJSの確認は node でスクリプト本文を抽出して構文評価する（外部/内部の判定は `<script>` の**タグ属性側の `src=`** だけで行う。本文に `im.src=` が含まれるため本文で判定すると誤検出する）。
+- CSSは `<style>` 内の `{` と `}` の個数一致もあわせて確認。
