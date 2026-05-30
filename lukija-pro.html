@@ -351,6 +351,7 @@
       </div>
       <div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <button id="helperSend" class="btn btn-primary" disabled>解説して</button>
+        <button id="helperOcr" class="btn btn-ghost" disabled>文字を読む</button>
         <span id="helperSpin" style="display:none"><span class="spin"></span></span>
         <span id="helperMsg" style="color:var(--ink-soft);font-size:.88rem"></span>
       </div>
@@ -1121,9 +1122,11 @@ $('imgFile').onchange = async (e) => {
     const prev = $('imgPreview');
     prev.src = dataUrl; prev.style.display = 'block';
     $('helperSend').disabled = false;
+    $('helperOcr').disabled = false;
   } catch (err) {
     helperImageB64 = null;
     $('helperSend').disabled = true;
+    $('helperOcr').disabled = true;
     renderHelperError($('helperResult'), '画像の読み込みに失敗しました: ' + err.message);
   }
 };
@@ -1156,6 +1159,79 @@ $('helperSend').onclick = async () => {
   }
   btn.disabled = false;
 };
+
+$('helperOcr').onclick = async () => {
+  if (!helperImageB64) return;
+  const btn = $('helperOcr'); btn.disabled = true;
+  $('helperSend').disabled = true;
+  $('helperSpin').style.display = 'inline';
+  $('helperMsg').textContent = 'テキストを読み取り中…';
+  $('helperResult').textContent = '';
+  try {
+    const res = await fetch(PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token: APP_TOKEN, mode: 'ocr', mediaType: 'image/jpeg', image: helperImageB64 }),
+    });
+    const text = await res.text();
+    $('helperSpin').style.display = 'none';
+    $('helperMsg').textContent = '';
+    if (text === 'RATE_LIMIT') {
+      renderHelperError($('helperResult'), 'レート制限に達しました（無料枠の上限）。', '1分ほど待ってから再試行してください。');
+    } else if (text === 'FORBIDDEN') {
+      renderHelperError($('helperResult'), '認証エラーが発生しました。');
+    } else {
+      renderOcrConfirm($('helperResult'), text);
+    }
+  } catch (err) {
+    $('helperSpin').style.display = 'none';
+    $('helperMsg').textContent = '';
+    renderHelperError($('helperResult'), '通信エラー: ' + err.message);
+  }
+  btn.disabled = false;
+  $('helperSend').disabled = false;
+};
+
+function renderOcrConfirm(container, ocrText) {
+  container.textContent = '';
+
+  const label = document.createElement('p');
+  label.style.cssText = 'margin:14px 0 6px;font-size:.85rem;color:var(--ink-mid)';
+  label.textContent = '読み取ったテキスト（修正できます）';
+  container.appendChild(label);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'paste-wrap';
+  const ta = document.createElement('textarea');
+  ta.id = 'ocrText';
+  ta.rows = 6;
+  ta.value = ocrText;
+  wrap.appendChild(ta);
+  container.appendChild(wrap);
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:10px;margin-top:10px;flex-wrap:wrap';
+
+  const goBtn = document.createElement('button');
+  goBtn.className = 'btn btn-primary';
+  goBtn.textContent = 'このテキストで読む';
+  goBtn.onclick = () => {
+    const txt = ta.value.trim();
+    if (!txt) return;
+    articleMeta = { title: 'カメラ読み取りテキスト', url: '' };
+    renderArticle(txt, false);
+    document.querySelector('.tab[data-tab="reading"]').click();
+  };
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-ghost';
+  cancelBtn.textContent = 'キャンセル';
+  cancelBtn.onclick = () => { container.textContent = ''; };
+
+  btnRow.appendChild(goBtn);
+  btnRow.appendChild(cancelBtn);
+  container.appendChild(btnRow);
+}
 
 function resizeToJpeg(file) {
   return new Promise((resolve, reject) => {
