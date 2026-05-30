@@ -35,6 +35,12 @@ var IMAGE_PROMPT = 'あなたはフィンランド語の先生です。生徒は
   + 'できれば次の順で: ①何を問うているか ②答え ③なぜそうなるか（理由）④覚え方のヒント。\n'
   + '画像が問題でない場合は、写っているフィンランド語を読み解いて説明してください。';
 
+var OCR_PROMPT = '画像に写っているフィンランド語のテキストをすべて正確に書き起こしてください。\n'
+  + '・文字だけを出力する。説明・コメント・前置きは一切不要。\n'
+  + '・段落や改行は元のレイアウトに沿って再現する。\n'
+  + '・読み取れない文字は「□」で代替する。\n'
+  + '・フィンランド語以外の言語（日本語・英語など）が混在する場合はそのまま含める。';
+
 // ── ① 記事HTML取得: GET ?mode=fetch&url=... ───────────────────
 function doGet(e) {
   const url = e.parameter.url;
@@ -82,6 +88,33 @@ function doPost(e) {
     const g = JSON.parse(gres.getContentText());
     const text = g.candidates[0].content.parts.map(function(p){ return p.text || ''; }).join('');
     return _text(text);
+  }
+
+  // ── OCRモード（画像→文字起こし） → Gemini ──────────────────────
+  // 画像モードと同じ Gemini 呼び出し。プロンプトだけ OCR_PROMPT に変える。
+  // 日次上限カウンタは画像モードと共有（doPost 先頭で計上済み）。
+  if (body.mode === 'ocr') {
+    const okey = PropertiesService.getScriptProperties().getProperty('GEMINI_KEY');
+    const ourl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + okey;
+    const ores = UrlFetchApp.fetch(ourl, {
+      method: 'post',
+      contentType: 'application/json',
+      muteHttpExceptions: true,
+      payload: JSON.stringify({
+        contents: [{
+          parts: [
+            { inline_data: { mime_type: body.mediaType, data: body.image } },
+            { text: OCR_PROMPT }
+          ]
+        }]
+      })
+    });
+    if (ores.getResponseCode() === 429) {
+      return _text('RATE_LIMIT');
+    }
+    const o = JSON.parse(ores.getContentText());
+    const ocrText = o.candidates[0].content.parts.map(function(p){ return p.text || ''; }).join('');
+    return _text(ocrText);
   }
 
   // ── ライティングテスト：問題生成 → Claude ─────────────────────

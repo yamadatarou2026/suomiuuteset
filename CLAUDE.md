@@ -37,6 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `doPost`（全モード共通でトークン認証＋日次上限を先頭で通過）:
 - `mode:"image"` → **Gemini**（画像ヘルパー）。戻り値はテキスト解説。
+- `mode:"ocr"` → **Gemini**（画像→文字起こし）。`OCR_PROMPT` で本文だけ抽出し、プレーンテキストを返す（JSONではない）。日次カウンタは image と共有。
 - `mode:"writing", action:"generate"` → **Claude**。記事から6問生成、`{questions:[…]}` を返す。
 - `mode:"writing", action:"grade"` → **Claude**。採点。typeCは添削、それ以外は正誤。
 - それ以外（単語解析） → **Claude**（§JSON契約）。
@@ -81,6 +82,7 @@ Syne(700/800)=ロゴ・見出し / DM Mono=本文・UI全般 / Bitter=原形(.ba
 - 品詞カラー: `POS_MAP` + `posStyle(wordClass)`。`showDetail()`/`renderVocab()`/`renderStats()` が参照。
 - マルチソースピッカー: `SOURCES` 配列を編集するだけで増減・切替。`kind:"rss"`=自動フェッチ、`kind:"links"`=固定リスト（`read:true`精読 / `false`外部タブ）。`rssCache` で重複取得を防ぐ。
 - ライティング: 記事取込時に `writingArticleText`/`articleMeta` を更新。出題元タイトル+リンクを `#writingSource` に表示。
+- 画像ヘルパー: 写真を `resizeToJpeg()`（長辺1600px・JPEG化）で圧縮し `helperImageB64` に保持。2ボタン構成 — 「解説して」(`#helperSend`, `mode:"image"`) と「文字を読む」(`#helperOcr`, `mode:"ocr"`)。OCRは結果を `renderOcrConfirm()` の編集用 textarea に出し、「このテキストで読む」で `renderArticle(text,false)`→リーディングタブへ自動切替（誤認識を直してから精読に流す）。両ボタンは `helperImageB64` の有無で disabled 連動。
 
 ## 構文チェック（ビルド・テストは無し）
 
