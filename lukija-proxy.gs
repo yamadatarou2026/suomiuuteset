@@ -14,6 +14,22 @@
  *   そこに「記事fetch」のルートを足しただけ。
  */
 
+// ── コスト防御：合言葉トークン ＆ 1日あたりの呼び出し上限 ──────
+// APP_TOKEN はフロント（lukija-pro.html の APP_TOKEN）と一致させること。
+// ページソースに載るため完璧な秘匿ではないが、ボット/通りすがりを弾く。
+// 万一トークンが漏れても DAILY_LIMIT で最悪コストが頭打ちになる。
+var APP_TOKEN = 'lk_VBTFNM9nFGXM7AtVCKSeJ_uq';
+var DAILY_LIMIT = 200;  // 1日（日本時間）あたりの有料API呼び出し上限。超えると翌日まで停止。
+
+function _overDailyLimit() {
+  var props = PropertiesService.getScriptProperties();
+  var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  var key = 'calls_' + today;
+  var n = parseInt(props.getProperty(key) || '0', 10) + 1;
+  props.setProperty(key, String(n));
+  return n > DAILY_LIMIT;
+}
+
 var IMAGE_PROMPT = 'あなたはフィンランド語の先生です。生徒は日本語話者の初心者です。\n'
   + '添付画像はフィンランド語の問題・練習・教材です。専門用語を避け、やさしい日本語で説明してください。\n'
   + 'できれば次の順で: ①何を問うているか ②答え ③なぜそうなるか（理由）④覚え方のヒント。\n'
@@ -38,6 +54,10 @@ function doGet(e) {
 // ── ② POST 中継: mode:"image" → Gemini / それ以外 → Claude ────
 function doPost(e) {
   const body = JSON.parse(e.postData.contents || '{}');
+
+  // ── コスト防御：トークン認証 ＆ 日次上限（全ての有料モード共通） ──
+  if (body.token !== APP_TOKEN) return _text('FORBIDDEN');
+  if (_overDailyLimit()) return _text('RATE_LIMIT');
 
   // ── 画像ヘルパーモード → Gemini ──────────────────────────────
   if (body.mode === 'image') {

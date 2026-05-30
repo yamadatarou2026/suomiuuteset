@@ -392,6 +392,8 @@
 <script>
 /* ═══════════ ① 設定：GASの /exec URL を貼り替える ═══════════ */
 const PROXY = "https://script.google.com/macros/s/AKfycbzL6k4NCy0Jkq-zbRmWdCq0mOHiuDoTJ8l8b40ngSlAgpgFzZ2oplgiDL80Cb3BcADN2w/exec";
+/* 合言葉トークン（GAS側 APP_TOKEN と一致させること。コスト防御用） */
+const APP_TOKEN = "lk_VBTFNM9nFGXM7AtVCKSeJ_uq";
 /* ════════════════════════════════════════════════════════════ */
 
 const $ = (id) => document.getElementById(id);
@@ -502,7 +504,7 @@ async function handleWord(surface, sentence, span) {
     const res = await fetch(PROXY, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" }, // ← preflight回避
-      body: JSON.stringify({ word: surface, sentence: sentence.trim() }),
+      body: JSON.stringify({ token: APP_TOKEN, word: surface, sentence: sentence.trim() }),
     });
     const data = JSON.parse(await res.text());
     marked[key] = { status: "done", data, surface, sentence };
@@ -999,7 +1001,7 @@ $('writingGenerate').onclick = async () => {
     const res = await fetch(PROXY, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ mode: 'writing', action: 'generate', article: writingArticleText }),
+      body: JSON.stringify({ token: APP_TOKEN, mode: 'writing', action: 'generate', article: writingArticleText }),
     });
     const data = JSON.parse(await res.text());
     writingQuestions = data.questions || [];
@@ -1057,7 +1059,7 @@ async function gradeQuestion(i) {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
-        mode: 'writing', action: 'grade',
+        token: APP_TOKEN, mode: 'writing', action: 'grade',
         type: q.type, question: q.question,
         answer: q.answer || '', userAnswer,
       }),
@@ -1137,7 +1139,7 @@ $('helperSend').onclick = async () => {
     const res = await fetch(PROXY, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ mode: 'image', mediaType: 'image/jpeg', image: helperImageB64, question }),
+      body: JSON.stringify({ token: APP_TOKEN, mode: 'image', mediaType: 'image/jpeg', image: helperImageB64, question }),
     });
     const text = await res.text();
     $('helperSpin').style.display = 'none';
