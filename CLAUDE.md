@@ -82,7 +82,8 @@ Syne(700/800)=ロゴ・見出し / DM Mono=本文・UI全般 / Bitter=原形(.ba
 - 品詞カラー: `POS_MAP` + `posStyle(wordClass)`。`showDetail()`/`renderVocab()`/`renderStats()` が参照。
 - マルチソースピッカー: `SOURCES` 配列を編集するだけで増減・切替。`kind:"rss"`=自動フェッチ、`kind:"links"`=固定リスト（`read:true`精読 / `false`外部タブ）。`rssCache` で重複取得を防ぐ。
 - ライティング: 記事取込時に `writingArticleText`/`articleMeta` を更新。出題元タイトル+リンクを `#writingSource` に表示。
-- 画像ヘルパー: 写真を `resizeToJpeg()`（長辺1600px・JPEG化）で圧縮し `helperImageB64` に保持。2ボタン構成 — 「解説して」(`#helperSend`, `mode:"image"`) と「文字を読む」(`#helperOcr`, `mode:"ocr"`)。OCRは結果を `renderOcrConfirm()` の編集用 textarea に出し、「このテキストで読む」で `renderArticle(text,false)`→リーディングタブへ自動切替（誤認識を直してから精読に流す）。両ボタンは `helperImageB64` の有無で disabled 連動。
+- 画像ヘルパー: 写真を `resizeToJpeg()`（長辺1600px・JPEG化）で圧縮し `helperImageB64` に保持。2ボタン構成 — 「解説して」(`#helperSend`, `mode:"image"`) と「文字を読む」(`#helperOcr`, `mode:"ocr"`)。OCRは結果を `renderOcrConfirm()` の編集用 textarea に出し、「このテキストで読む」で `renderArticle(text,false)`→リーディングタブへ自動切替＋記事へ自動スクロール（誤認識を直してから精読に流す）。両ボタンは `helperImageB64` の有無で disabled 連動。
+  - ⚠️**OCR確認欄の textarea は「編集専用」で単語クリック不可**。訳・説明はリーディング画面（`<span class="w">`）でしか出ない。過去にユーザーが textarea の文字を直接クリックして「翻訳が出ない」と誤解した事例あり → 確認欄に案内文（👇このテキストで読む…）を表示して導線を明示済み。クリック連鎖は `renderArticle(text,false)`→`wrapWords()`→`handleWord()` で貼り付けテキストと完全に同一機構（プレビュー検証済み）。
 
 ## 構文チェック（ビルド・テストは無し）
 
