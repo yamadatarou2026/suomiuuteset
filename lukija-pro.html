@@ -1200,6 +1200,11 @@ function renderOcrConfirm(container, ocrText) {
   label.textContent = '読み取ったテキスト（修正できます）';
   container.appendChild(label);
 
+  const hint = document.createElement('p');
+  hint.style.cssText = 'margin:0 0 8px;font-size:.8rem;color:var(--ink-soft)';
+  hint.textContent = '👇「このテキストで読む」を押すとリーディング画面に移り、単語をクリックして訳・説明を見られます。';
+  container.appendChild(hint);
+
   const wrap = document.createElement('div');
   wrap.className = 'paste-wrap';
   const ta = document.createElement('textarea');
@@ -1221,6 +1226,8 @@ function renderOcrConfirm(container, ocrText) {
     articleMeta = { title: 'カメラ読み取りテキスト', url: '' };
     renderArticle(txt, false);
     document.querySelector('.tab[data-tab="reading"]').click();
+    const card = document.getElementById('articleCard');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const cancelBtn = document.createElement('button');
