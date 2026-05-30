@@ -64,6 +64,107 @@ function doPost(e) {
     return _text(text);
   }
 
+  // ── ライティングテスト：問題生成 → Claude ─────────────────────
+  if (body.mode === 'writing' && body.action === 'generate') {
+    var wkey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_KEY');
+    var writingPrompt =
+      'あなたはフィンランド語教師です。以下の記事を元に、日本語話者の初心者向けライティング問題を生成してください。\n'
+      + '以下の3種類を各2問、計6問生成してください:\n'
+      + 'A: 穴埋め問題（記事から文を抜粋し、格変化・語尾を___で空欄にする）\n'
+      + 'B: 和文フィンランド語訳（記事の内容に関連した日本語短文）\n'
+      + 'C: 自由作文テーマ（記事テーマに関する質問。2〜3文で答える想定）\n'
+      + 'JSONのみで返してください（前置き・コードフェンス禁止）:\n'
+      + '{"questions":[{"type":"A","question":"...","answer":"...","hint":"格の名前などヒント"},{"type":"B","question":"日本語の文","answer":"フィンランド語の模範解答","hint":""},{"type":"C","question":"テーマの質問","answer":"","hint":""},...]}\n\n'
+      + '記事:\n' + body.article;
+
+    var wres = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post',
+      contentType: 'application/json',
+      muteHttpExceptions: true,
+      headers: { 'x-api-key': wkey, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: writingPrompt }],
+      }),
+    });
+    var wdata = JSON.parse(wres.getContentText());
+    var wtxt = (wdata.content || [])
+      .filter(function(b){ return b.type === 'text'; })
+      .map(function(b){ return b.text; })
+      .join('')
+      .replace(/```json|```/g, '')
+      .trim();
+    return _json(wtxt);
+  }
+
+  // ── ライティングテスト：採点 → Claude ───────────────────────
+  if (body.mode === 'writing' && body.action === 'grade') {
+    var gkey2 = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_KEY');
+    var gradePrompt;
+    if (body.type === 'C') {
+      gradePrompt =
+        'フィンランド語教師として自由作文を添削してください。\n'
+        + 'テーマ: "' + body.question + '"\n'
+        + '生徒の回答: "' + body.userAnswer + '"\n'
+        + 'JSONのみで返してください（前置き・コードフェンス禁止）:\n'
+        + '{"score":"A/B/C/D","feedback":"全体コメント（日本語）","corrections":[{"original":"元の表現","corrected":"修正後","reason":"理由（日本語）"}]}';
+    } else {
+      gradePrompt =
+        'フィンランド語教師として採点してください。\n'
+        + '問題: "' + body.question + '"\n'
+        + '正解: "' + body.answer + '"\n'
+        + '生徒の回答: "' + body.userAnswer + '"\n'
+        + 'JSONのみで返してください（前置き・コードフェンス禁止）:\n'
+        + '{"correct":true,"feedback":"コメント（日本語）","correction":"修正案（不正解の場合のみ）"}';
+    }
+
+    var gres2 = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post',
+      contentType: 'application/json',
+      muteHttpExceptions: true,
+      headers: { 'x-api-key': gkey2, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: gradePrompt }],
+      }),
+    });
+    var gdata2 = JSON.parse(gres2.getContentText());
+    var gtxt2 = (gdata2.content || [])
+      .filter(function(b){ return b.type === 'text'; })
+      .map(function(b){ return b.text; })
+      .join('')
+      .replace(/```json|```/g, '')
+      .trim();
+    return _json(gtxt2);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 【Gemini移行テスト手順】
+  // 現在は Claude Sonnet 4 を使用。以下の手順で Gemini 2.5 Flash（有料）と
+  // 品質を比較してから切り替えを判断すること。
+  //
+  // 1. Google AI Studio (aistudio.google.com) で GEMINI_KEY を取得
+  //    → スクリプトプロパティに GEMINI_KEY を追加
+  //
+  // 2. 以下の URL と payload を差し替えてテストデプロイ:
+  //    URL: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + gkey
+  //    payload の構造は画像ヘルパーモードの Gemini 呼び出しを参照
+  //
+  // 3. 同じ単語・文で Claude と Gemini の出力を比較する:
+  //    - perusmuoto（原形化）の正確さ
+  //    - grammarEasy の日本語の自然さ
+  //    - breakdown の複合語分割の精度
+  //
+  // 4. 品質に満足したら model 指定を Gemini に切り替えて本番デプロイ
+  //
+  // コスト比較（変更後フル機能・1クリックあたり）:
+  //    Claude Sonnet 4        : 約 0.93円
+  //    Claude Haiku 3.5       : 約 0.25円
+  //    Gemini 2.5 Flash 有料  : 約 0.14円
+  // ═══════════════════════════════════════════════════════════════
+
   // ── 単語解析モード → Claude（§3 JSON契約を維持） ──────────────
   const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_KEY');
   const prompt =
@@ -75,7 +176,9 @@ function doPost(e) {
     + '{"perusmuoto":"辞書形","wordClass":"品詞","contextMeaning":"この文での意味",'
     + '"baseMeaning":"原形の意味",'
     + '"plain":"なぜこの形かを専門用語を使わず初心者向けに1〜2文で",'
-    + '"grammar":"文法用語での正確な説明（中級者向け・簡潔に）"}';
+    + '"grammar":"文法用語での正確な説明（中級者向け・簡潔に）",'
+    + '"grammarEasy":"文法用語の意味をたとえを使って中学生でもわかるように2〜3文で（例: 分格形は「リンゴを少し食べた」のように一部や不完全な動作を表す形です）",'
+    + '"breakdown":"複合語なら構成要素をハイフンでつないだ形（例: liikenne-onnettomuus）。複合語でない場合は null"}';
 
   const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
     method: 'post',
